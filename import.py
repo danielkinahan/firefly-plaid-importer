@@ -1,4 +1,6 @@
 import plaid
+from plaid.api import plaid_api
+from plaid.model.transactions_sync_request import TransactionsSyncRequest
 import requests
 import json
 import toml
@@ -47,18 +49,37 @@ def main():
     plaid_config, firefly_config = read_config()
 
     # Initialize Plaid client
-    plaid_client = plaid.Client(client_id=plaid_config['client_id'], secret=plaid_config['secret'],
-                                public_key=plaid_config['public_key'], environment='sandbox')
+    
+    configuration = plaid.Configuration(
+        host=plaid.Environment.Development,
+        api_key={
+            'clientId': plaid_config['client_id'],
+            'secret': plaid_config['secret'],
+        }
+    )
+    api_client = plaid.ApiClient(configuration)
+    client = plaid_api.PlaidApi(api_client)
 
-    # Example: retrieve transactions from the last 30 days
-    start_date = '2023-11-01'
-    end_date = '2023-11-30'
+
+    request = TransactionsSyncRequest(
+        access_token=plaid_config['access_token'],
+    )
+    response = client.transactions_sync(request)
+    transactions = response['added']
 
     # Get transactions from Plaid
-    plaid_transactions = get_transactions(plaid_client, plaid_config['access_token'], start_date, end_date)
+    while (response['has_more']):
+        request = TransactionsSyncRequest(
+            access_token=plaid_config['access_token'],
+            cursor=response['next_cursor']
+        )
+        response = client.transactions_sync(request)
+        transactions += response['added']
+
+    print(transactions)
 
     # Insert transactions into Firefly III
-    insert_transactions(plaid_transactions, firefly_config['api_key'], firefly_config['base_url'])
+    # insert_transactions(plaid_transactions, firefly_config['api_key'], firefly_config['base_url'])
 
 if __name__ == "__main__":
     main()
