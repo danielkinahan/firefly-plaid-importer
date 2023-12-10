@@ -3,8 +3,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Config
+config.toml
+
 # C extensions
 *.so
+
+# Visual Studio Code
+.vscode
 
 # Distribution / packaging
 .Python
