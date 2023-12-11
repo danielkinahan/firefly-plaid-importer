@@ -54,7 +54,9 @@ def firefly_get_existing_transactions_external_ids(firefly_config):
         'Authorization': f'Bearer {firefly_api_key}',
         'Content-Type': 'application/json'
     }
-    response = requests.get(firefly_base_url + '/api/v1/transactions', headers=headers).json()
+
+    url = firefly_base_url + '/api/v1/accounts/' + firefly_config['account'] + '/transactions'
+    response = requests.get(url, headers=headers).json()
     transactions = response['data']
     while(response['links'].get('next')):
         response = requests.get(response['links']['next'], headers=headers).json()
@@ -64,7 +66,7 @@ def firefly_get_existing_transactions_external_ids(firefly_config):
     return ids
 
 # Function to insert transactions into Firefly III
-def insert_transactions(transactions, existing_transactions_ids, firefly_config):
+def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config):
 
     firefly_api_key = firefly_config['api_key']
     firefly_base_url = firefly_config['base_url']
@@ -73,13 +75,13 @@ def insert_transactions(transactions, existing_transactions_ids, firefly_config)
         'Content-Type': 'application/json'
     }
 
-    for transaction in transactions['transactions']:
+    for transaction in plaid_transactions:
         amount = transaction['amount']
         date = transaction['date']
         description = transaction['name']
         plaid_transaction_id = transaction['transaction_id']
 
-        if plaid_transaction_id in existing_transactions_ids:
+        if plaid_transaction_id in firefly_existing_transactions_ids:
             print(f"Transaction '{description}' already exists in Firefly. Skipping insertion.")
             continue
 
@@ -91,13 +93,15 @@ def insert_transactions(transactions, existing_transactions_ids, firefly_config)
             "external_id": plaid_transaction_id
         }
 
-        response = requests.post(firefly_base_url + 'transactions', headers=headers, data=json.dumps(payload))
+        # print(description)
 
-        if response.status_code == 201:
-            print(f"Transaction '{description}' inserted successfully.")
-            existing_transactions_ids.add(plaid_transaction_id)
-        else:
-            print(f"Failed to insert transaction '{description}'. Status code: {response.status_code}")
+        # response = requests.post(firefly_base_url + 'transactions', headers=headers, data=json.dumps(payload))
+
+        # if response.status_code == 201:
+        #     print(f"Transaction '{description}' inserted successfully.")
+        #     existing_transactions_ids.add(plaid_transaction_id)
+        # else:
+        #     print(f"Failed to insert transaction '{description}'. Status code: {response.status_code}")
 
 def loop(plaid_config, firefly_config, client, firefly_existing_transactions_ids):
     plaid_transactions, cursor = plaid_sync_transactions(client, plaid_config)
@@ -118,16 +122,8 @@ def main():
     api_client = plaid.ApiClient(configuration)
     client = plaid_api.PlaidApi(api_client)
 
-    # transactions, cursor = plaid_sync_transactions(client, plaid_config)
-    # print(transactions[-1])
-    # print(cursor)
-
-    # transactions, cursor = plaid_sync_transactions(client, plaid_config, cursor)
-    # print(transactions[-1])
-    # print(cursor)
-
     firefly_existing_transactions_external_ids = firefly_get_existing_transactions_external_ids(firefly_config)
-    print(firefly_existing_transactions_external_ids)
+    loop(plaid_config, firefly_config, client, firefly_existing_transactions_external_ids)
 
     # schedule.every(10).minutes.do(
     #     loop, 
