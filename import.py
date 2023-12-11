@@ -7,6 +7,7 @@ import toml
 import schedule
 import time
 
+cursor = ""
 
 # Function to read credentials from config.toml file
 def read_config():
@@ -17,8 +18,10 @@ def read_config():
         return plaid_config, firefly_config
 
 # Function to get new transactions from Plaid. On first run this will return all.
-def plaid_sync_transactions(client, plaid_config, cursor=""):
+def plaid_sync_transactions(client, plaid_config):
 
+    global cursor
+    
     if cursor:
         request = TransactionsSyncRequest(
             access_token=plaid_config['access_token'],
@@ -43,7 +46,7 @@ def plaid_sync_transactions(client, plaid_config, cursor=""):
         transactions += response['added']
         cursor=response['next_cursor']
 
-    return transactions, cursor
+    return transactions
 
 
 def firefly_get_existing_transactions_external_ids(firefly_config):
@@ -104,7 +107,7 @@ def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, f
         #     print(f"Failed to insert transaction '{description}'. Status code: {response.status_code}")
 
 def loop(plaid_config, firefly_config, client, firefly_existing_transactions_ids):
-    plaid_transactions, cursor = plaid_sync_transactions(client, plaid_config)
+    plaid_transactions = plaid_sync_transactions(client, plaid_config)
     insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config)
 
 def main():
