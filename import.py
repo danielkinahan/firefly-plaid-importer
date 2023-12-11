@@ -9,6 +9,17 @@ import time
 
 cursor = ""
 
+remove_strings = [
+    'Visa Debit - Purchase - ',
+    'Internet Deposit from Tangerine Chequing Account - ',
+    'Internet Deposit from Tangerine Savings Account - ',
+    'INTERAC e-Transfer From: ',
+    'INTERAC e-Transfer To: ',
+    'Interac - Purchase - ',
+    'EFT Deposit from ',
+    'Deposit - '
+    ]
+
 # Function to read credentials from config.toml file
 def read_config():
     with open('config.toml', 'r') as file:
@@ -69,7 +80,7 @@ def firefly_get_existing_transactions_external_ids(firefly_config):
     return ids
 
 # Function to insert transactions into Firefly III
-def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config):
+def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config, plaid_config):
 
     firefly_api_key = firefly_config['api_key']
     firefly_base_url = firefly_config['base_url']
@@ -79,17 +90,33 @@ def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, f
     }
 
     for transaction in plaid_transactions:
-        amount = transaction['amount']
+
         date = transaction['date']
         description = transaction['name']
         plaid_transaction_id = transaction['transaction_id']
+        tags = transaction['category']
+        currency_code = transaction['iso_currency_code']
+        opposing_account = transaction['name']
 
         if plaid_transaction_id in firefly_existing_transactions_ids:
-            print(f"Transaction '{description}' already exists in Firefly. Skipping insertion.")
+            #print(f"Transaction '{description}' already exists in Firefly. Skipping insertion.")
             continue
 
+        if transaction['account_id'] != plaid_config['account']:
+            continue
+
+        if not any(x in opposing_account.lower() for x in remove_strings):
+            print(opposing_account)
+
+        if transaction['amount'] > 0:
+            type = "deposit"
+        else:
+            type = "withdrawal"
+
+        amount = abs(transaction['amount'])
+
         payload = {
-            "type": "withdrawal",
+            "type": type,
             "date": date,
             "description": description,
             "amount": amount,
@@ -108,7 +135,7 @@ def insert_transactions(plaid_transactions, firefly_existing_transactions_ids, f
 
 def loop(plaid_config, firefly_config, client, firefly_existing_transactions_ids):
     plaid_transactions = plaid_sync_transactions(client, plaid_config)
-    insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config)
+    insert_transactions(plaid_transactions, firefly_existing_transactions_ids, firefly_config, plaid_config)
 
 def main():
     # Read credentials from config file
