@@ -1,0 +1,35 @@
+[config]
+# Plaid client_id and secret can be retrieved from your plaid dashboard
+plaid_client_id = ""
+plaid_secret = ""
+
+# To get your plaid access tokens you will need to launch the plaid quickstart 
+# example in development and login to each of your banks
+
+plaid_access_tokens = [""]
+
+# Firefly API key can be generated from your firefly settings page
+firefly_api_key = ""
+# URL to your firefly instance without trailing slash
+firefly_base_url = "https://my.budget.ca"
+
+# Strings to remove from account names if your bank adds them
+# These will be preserved in the description names of the transactions
+remove_strings = [
+    "EFT Deposit from ",
+    "EFT Withdrawal to ",
+    "Deposit - ",
+    "Withdrawal - ",
+    "ABM - ",
+    "Bill Payment - ",
+]
+
+# How often to sync transactions in minutes
+sync_minutes = 10
+# If you'd like to match transactions found in plaid to ones with the same
+# amount and date found in your firefly instance
+# This will update the external_ids of them to match
+match_transactions = false
+
+[accounts]
+plaid_account_number = "firefly_acccount_number"
