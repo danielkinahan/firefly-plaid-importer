@@ -32,4 +32,6 @@ sync_minutes = 10
 match_transactions = false
 
 [accounts]
+# Plaid account id to firefly account id mapping
+# If none are provided this will print all available accounts and quit
 plaid_account_number = "firefly_acccount_number"
