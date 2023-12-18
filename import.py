@@ -8,6 +8,7 @@ import toml
 import schedule
 import time
 import logging
+import datetime
 
 cursors = []
 
@@ -64,6 +65,8 @@ def plaid_sync_transactions(client, config):
     """
     global cursors
 
+    transactions = []
+
     for i in range(len(config['plaid_access_tokens'])):
         # Use existing cursor if available
         if cursors[i]:
@@ -77,7 +80,7 @@ def plaid_sync_transactions(client, config):
             )
 
         response = client.transactions_sync(request)
-        transactions = response['added']
+        transactions += response['added']
         cursors[i] = response['next_cursor']
 
         # Get transactions from Plaid
@@ -91,6 +94,31 @@ def plaid_sync_transactions(client, config):
             cursors[i] = response['next_cursor']
 
     return transactions
+
+
+def print_possible_plaid_values(plaid_transactions):
+    unique_values = ""
+    for transaction in plaid_transactions:
+        transaction = transaction.to_dict()
+        for item in transaction:
+            if transaction[item]:
+                if isinstance(transaction[item], dict):
+                    if item not in unique_values:
+                        unique_values[item] = {}
+                    for key in transaction[item]:
+                        if key not in unique_values[item]:
+                            unique_values[item][key] = set()
+                        unique_values[item][key].add(transaction[item][key])
+                elif isinstance(transaction[item], list):
+                    if item not in unique_values:
+                        unique_values[item] = set()
+                    for value in transaction[item]:
+                        unique_values[item].add(str(value))
+                else:
+                    if item not in unique_values:
+                        unique_values[item] = set()
+                    unique_values[item].add(transaction[item])
+    print(unique_values)
 
 
 def firefly_get_transactions(config, accounts):
@@ -264,6 +292,88 @@ def match_transaction(config, transaction):
     return False
 
 
+def extract_transaction_details(config, accounts, transaction):
+
+    # These are the values I have found sometime have data in them:
+    # account_id, amount, authorized_date, category, category_id, counterparties (name, type, website, logo_url, confidence_level, entity_id),
+    # date, iso_currency_code, location (address, city, region, postal_code, lat, lon, store_number),
+    # merchant_name, name, payment channel, payment meta (payment processor),
+    # personal_finance_category (confidence_level, detailed, primary), personal_finance_category_icon_url,
+    # transaction_id, transaction_type, logo-url, merchant_entity_id, website
+
+    notes = ""
+
+    # Account name
+    if transaction['merchant_name']:
+        other_account = transaction['merchant_name']
+    elif transaction['counterparties']:
+        if transaction['counterparties'][0]['name']:
+            other_account = transaction['counterparties'][0]['name']
+    else:
+        other_account = clean_transaction_account_name(
+            config, transaction['name'])
+
+    if transaction['counterparties']:
+        for counterparty in transaction['counterparties']:
+            if counterparty['type']:
+                notes += f"Counterparty Type: {counterparty['type']},\n"
+            if counterparty['website']:
+                notes += f"Website: {counterparty['website']},\n"
+            elif transaction['website']:
+                notes += f"Website: {transaction['website']},\n"
+            if counterparty['phone_number']:
+                notes += f"Phone: {counterparty['phone_number']},\n"
+
+    for item in transaction['location'].to_dict():
+        if transaction['location'][item]:
+            notes += f"{item.replace('_', ' ').title()}: {transaction['location'][item]},\n"
+
+    if transaction['payment_meta']['payment_processor']:
+        notes += f'Payment Processor: {transaction["payment_meta"]["payment_processor"]},\n'
+
+    notes += f'Payment Channel: {transaction["payment_channel"]},\n'
+    notes += f'Transaction Type: {transaction["transaction_type"]},\n'
+    notes += f'Primary Category: {transaction["personal_finance_category"]["primary"]},\n'
+    notes += f'Detailed Category: {transaction["personal_finance_category"]["detailed"]}\n'
+
+    converted_transaction = {
+        "date": transaction['date'].isoformat(),
+        "description": transaction['name'],
+        "external_id": transaction['transaction_id'],
+        "currency_code": transaction['iso_currency_code'],
+        "tags": transaction['category'],
+        "notes": notes
+    }
+
+    if transaction['location']['lat'] and transaction['location']['lon']:
+        converted_transaction.update({
+            "latitude": transaction['location']['lat'],
+            "longitude": transaction['location']['lon']
+        })
+
+    # Transaction amount has to be positive number
+    if transaction['amount'] < 0:
+        converted_transaction.update({
+            "type": "deposit",
+            "amount": abs(transaction['amount']),
+            "source_name": other_account,
+            "destination_id": accounts[transaction['account_id']],
+        })
+    else:
+        converted_transaction.update({
+            "type": "withdrawal",
+            "amount": transaction['amount'],
+            "source_id": accounts[transaction['account_id']],
+            "destination_name": other_account,
+        })
+
+    payload = {
+        'transactions': [converted_transaction]
+    }
+
+    return payload
+
+
 def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
     """
     Inserts new transactions into Firefly III.
@@ -288,9 +398,6 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
 
     for transaction in plaid_transactions:
 
-        other_account = clean_transaction_account_name(
-            config, transaction['name'])
-
         if transaction['transaction_id'] in firefly_ids:
             logging.debug(
                 f"Transaction '{transaction['name']}' already exists in Firefly. Skipping insertion.")
@@ -300,14 +407,11 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
             continue
 
         if transaction['amount'] == last_transaction['amount']:
-            # True cases of similar transactions
-            # Different descriptions
-            # ABM Withdrawal - Everything but transaction id same
-
-            # False cases
-            # Everything but transaction id same
-            if last_transaction['name'] == transaction['name'] and 'ABM' not in transaction['name']:
-                logging.info(f'Possible duplicate transaction: {transaction}')
+            # In some cases, for myself using tangerine to split a transaction, the transaction is duplicated
+            # You can provide a list of strings that if found in the name, will not be considered duplicates
+            if last_transaction['name'] == transaction['name'] and not any(match in transaction['name'] for match in config['not_duplicates']):
+                logging.info(
+                    f'Possible duplicate transactions: {transaction} {last_transaction}')
                 continue
 
         last_transaction = transaction
@@ -316,31 +420,7 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
             if match_transaction(config, transaction):
                 continue
 
-        payload = {
-            'transactions': [{
-                "date": transaction['date'].isoformat(),
-                "description": transaction['name'],
-                "external_id": transaction['transaction_id'],
-                "currency_code": transaction['iso_currency_code'],
-                "tags": transaction['category']
-            }]
-        }
-
-        # Transaction amount has to be positive number
-        if transaction['amount'] < 0:
-            payload['transactions'][0].update({
-                "type": "deposit",
-                "amount": abs(transaction['amount']),
-                "source_name": other_account,
-                "destination_id": accounts[transaction['account_id']],
-            })
-        else:
-            payload['transactions'][0].update({
-                "type": "withdrawal",
-                "amount": transaction['amount'],
-                "source_id": accounts[transaction['account_id']],
-                "destination_name": other_account,
-            })
+        payload = extract_transaction_details(config, accounts, transaction)
 
         response = requests.post(
             firefly_base_url + '/api/v1/transactions', headers=headers, data=json.dumps(payload))
