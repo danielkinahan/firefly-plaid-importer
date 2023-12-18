@@ -184,7 +184,8 @@ def find_matching_transactions(config, plaid_transaction):
     query = {
         "type": p_type,
         "amount": p_amount,
-        "date_on": p_date.isoformat()
+        "date_on": p_date.isoformat(),
+        "has_any_external_id": "false"
     }
 
     params = {
@@ -197,6 +198,13 @@ def find_matching_transactions(config, plaid_transaction):
         logging.error(
             f"Failed to get matching transactions. Status code: {response.status_code}")
         return []
+
+    matching = []
+
+    # has_any_external_id is not working, so we have to filter manually
+    for match in response.json()['data']:
+        if not match['attributes']['transactions'][0]['external_id']:
+            matching.append(match)
 
     return response.json()['data']
 
@@ -219,9 +227,6 @@ def update_existing_transaction_with_id(config, firefly_id, plaid_id):
     payload = {
         "external_id": plaid_id
     }
-
-    logging.info(
-        f"Firefly transaction {firefly_id} matches plaid transaction {plaid_id}")
 
     response = requests.put(
         f'{firefly_base_url}/api/v1/transactions/{firefly_id}', headers=headers, data=json.dumps(payload))
@@ -246,9 +251,12 @@ def match_transaction(config, transaction):
     matching = find_matching_transactions(
         config, transaction)
     if len(matching) == 1:
-        id = matching[0]['id']
+        firefly_id = matching[0]['id']
+        logging.info(
+            f"Firefly transaction {firefly_id} matches plaid transaction {transaction['name']} on {transaction['date']} for {transaction['amount']}")
+
         update_existing_transaction_with_id(
-            config, id, transaction['transaction_id'])
+            config, firefly_id, transaction['transaction_id'])
         return True
     elif len(matching) > 1:
         logging.info("Multiple matches found. Not updating.")
@@ -382,19 +390,20 @@ def main():
         firefly_get_transactions(config, accounts))
 
     logging.info("Starting Plaid to Firefly sync.")
-    sync(config, accounts, client, firefly_ids)
 
-    # schedule.every(config['sync_minutes']).minutes.do(
-    #     sync,
-    #     config=config,
-    #     accounts=accounts,
-    #     client=client,
-    #     firefly_ids=firefly_ids
-    # )
+    # sync(config, accounts, client, firefly_ids)
 
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(1)
+    schedule.every(config['sync_minutes']).minutes.do(
+        sync,
+        config=config,
+        accounts=accounts,
+        client=client,
+        firefly_ids=firefly_ids
+    )
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
 
 
 if __name__ == "__main__":
