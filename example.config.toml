@@ -31,6 +31,9 @@ sync_minutes = 10
 # This will update the external_ids of them to match
 match_transactions = false
 
+# Substrings that if found in a possible duplicate transaction will cause it to be posted regardless
+not_duplicates = []
+
 [accounts]
 # Plaid account id to firefly account id mapping
 # If none are provided this will print all available accounts and quit
