@@ -282,18 +282,35 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
         'Accept': 'application/json'
     }
 
+    last_transaction = {
+        "amount": None
+    }
+
     for transaction in plaid_transactions:
 
         other_account = clean_transaction_account_name(
             config, transaction['name'])
 
         if transaction['transaction_id'] in firefly_ids:
-            logging.info(
+            logging.debug(
                 f"Transaction '{transaction['name']}' already exists in Firefly. Skipping insertion.")
             continue
 
         if transaction['account_id'] not in accounts.keys():
             continue
+
+        if transaction['amount'] == last_transaction['amount']:
+            # True cases of similar transactions
+            # Different descriptions
+            # ABM Withdrawal - Everything but transaction id same
+
+            # False cases
+            # Everything but transaction id same
+            if last_transaction['name'] == transaction['name'] and 'ABM' not in transaction['name']:
+                logging.info(f'Possible duplicate transaction: {transaction}')
+                continue
+
+        last_transaction = transaction
 
         if config['match_transactions']:
             if match_transaction(config, transaction):
