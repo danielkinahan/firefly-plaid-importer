@@ -161,8 +161,11 @@ def firefly_filter_for_transaction_ids(firefly_transactions):
     Returns:
         firefly_ids: A set of transaction IDs.
     """
-    firefly_ids = {firefly_transaction['attributes']['transactions'][0]['external_id']
-                   for firefly_transaction in firefly_transactions}
+
+    firefly_ids = set()
+    for item in firefly_transactions:
+        firefly_ids.update(item['attributes']['transactions']
+                           [0]['external_id'].split(', '))
     return firefly_ids
 
 
@@ -179,7 +182,7 @@ def clean_transaction_account_name(config, name):
     """
     for string in config['remove_strings']:
         name = name.replace(string, '')
-    return name
+    return name.title()
 
 
 def find_matching_transactions(config, plaid_transaction):
@@ -253,7 +256,12 @@ def update_existing_transaction_with_id(config, firefly_id, plaid_id):
     }
 
     payload = {
-        "external_id": plaid_id
+        "transactions": [
+            {
+                "transaction_journal_id": firefly_id,
+                "external_id": plaid_id
+            }
+        ]
     }
 
     response = requests.put(
@@ -332,7 +340,7 @@ def extract_transaction_details(config, accounts, transaction):
         notes += f'Payment Processor: {transaction["payment_meta"]["payment_processor"]},\n'
 
     notes += f'Payment Channel: {transaction["payment_channel"]},\n'
-    notes += f'Transaction Type: {transaction["transaction_type"]},\n'
+    # notes += f'Transaction Type: {transaction["transaction_type"]},\n' deprecated
     notes += f'Primary Category: {transaction["personal_finance_category"]["primary"]},\n'
     notes += f'Detailed Category: {transaction["personal_finance_category"]["detailed"]}\n'
 
@@ -406,12 +414,19 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
         if transaction['account_id'] not in accounts.keys():
             continue
 
-        if transaction['amount'] == last_transaction['amount']:
+        if transaction['amount'] == last_transaction['amount'] and transaction['name'] == last_transaction['name']:
             # In some cases, for myself using tangerine to split a transaction, the transaction is duplicated
             # You can provide a list of strings that if found in the name, will not be considered duplicates
-            if last_transaction['name'] == transaction['name'] and not any(match in transaction['name'] for match in config['not_duplicates']):
+
+            # Transactions cannot be set to 0, so we apppend an id to the existing transaction
+            if not any(match in transaction['name'] for match in config['not_duplicates']):
                 logging.info(
-                    f'Possible duplicate transactions: {transaction} {last_transaction}')
+                    f'Appending ID for duplicate transaction: {transaction["name"]} on {transaction["date"]}')
+                combined_id = f'{last_transaction["transaction_id"]}, {transaction["transaction_id"]}'
+                firefly_id = json.loads(response.text)['data']['id']
+                update_existing_transaction_with_id(
+                    config, firefly_id, combined_id)
+                firefly_ids.add(transaction['transaction_id'])
                 continue
 
         last_transaction = transaction
