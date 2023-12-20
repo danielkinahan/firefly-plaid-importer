@@ -28,6 +28,7 @@ def read_config(config_filename):
         config = config_file.get('config', {})
         if not config:
             logging.error("Unable to read config")
+            exit(1)
         accounts = config_file.get('accounts', {})
         return config, accounts
 
@@ -50,6 +51,38 @@ def display_plaid_accounts(config, client):
         logging.error("No accounts found in Plaid.")
         exit(1)
     print(accounts)
+
+
+def display_possible_plaid_values(plaid_transactions):
+    """
+    Function that will display all values which appear at least once in the transactions.
+    Not used in the program, only for debugging purposes.
+
+    Args:
+        plaid_transactions (list): The transactions from Plaid.
+    """
+    unique_values = ""
+    for transaction in plaid_transactions:
+        transaction = transaction.to_dict()
+        for item in transaction:
+            if transaction[item]:
+                if isinstance(transaction[item], dict):
+                    if item not in unique_values:
+                        unique_values[item] = {}
+                    for key in transaction[item]:
+                        if key not in unique_values[item]:
+                            unique_values[item][key] = set()
+                        unique_values[item][key].add(transaction[item][key])
+                elif isinstance(transaction[item], list):
+                    if item not in unique_values:
+                        unique_values[item] = set()
+                    for value in transaction[item]:
+                        unique_values[item].add(str(value))
+                else:
+                    if item not in unique_values:
+                        unique_values[item] = set()
+                    unique_values[item].add(transaction[item])
+    print(unique_values)
 
 
 def plaid_sync_transactions(client, config):
@@ -94,31 +127,6 @@ def plaid_sync_transactions(client, config):
             cursors[i] = response['next_cursor']
 
     return transactions
-
-
-def print_possible_plaid_values(plaid_transactions):
-    unique_values = ""
-    for transaction in plaid_transactions:
-        transaction = transaction.to_dict()
-        for item in transaction:
-            if transaction[item]:
-                if isinstance(transaction[item], dict):
-                    if item not in unique_values:
-                        unique_values[item] = {}
-                    for key in transaction[item]:
-                        if key not in unique_values[item]:
-                            unique_values[item][key] = set()
-                        unique_values[item][key].add(transaction[item][key])
-                elif isinstance(transaction[item], list):
-                    if item not in unique_values:
-                        unique_values[item] = set()
-                    for value in transaction[item]:
-                        unique_values[item].add(str(value))
-                else:
-                    if item not in unique_values:
-                        unique_values[item] = set()
-                    unique_values[item].add(transaction[item])
-    print(unique_values)
 
 
 def firefly_get_transactions(config, accounts):
@@ -301,13 +309,26 @@ def match_transaction(config, transaction):
 
 
 def extract_transaction_details(config, accounts, transaction):
+    """
+    Extracts the transaction details from Plaid to a Firefly III format
 
-    # These are the values I have found sometime have data in them:
-    # account_id, amount, authorized_date, category, category_id, counterparties (name, type, website, logo_url, confidence_level, entity_id),
-    # date, iso_currency_code, location (address, city, region, postal_code, lat, lon, store_number),
-    # merchant_name, name, payment channel, payment meta (payment processor),
-    # personal_finance_category (confidence_level, detailed, primary), personal_finance_category_icon_url,
-    # transaction_id, transaction_type, logo-url, merchant_entity_id, website
+    Args:
+        config (dict): The configuration details.
+        accounts (dict): The account details.
+        transaction (dict): The transaction from Plaid.
+    Returns:
+        dict: The transaction in a Firefly III format.
+    """
+
+    """
+    Notes:
+    These are the values I have found that sometimes have data in them:
+        account_id, amount, authorized_date, category, category_id, counterparties (name, type, website, logo_url, confidence_level, entity_id),
+        date, iso_currency_code, location (address, city, region, postal_code, lat, lon, store_number),
+        merchant_name, name, payment channel, payment meta (payment processor),
+        personal_finance_category (confidence_level, detailed, primary), personal_finance_category_icon_url,
+        transaction_id, transaction_type, logo-url, merchant_entity_id, website
+    """
 
     notes = ""
 
@@ -418,7 +439,7 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
             # In some cases, for myself using tangerine to split a transaction, the transaction is duplicated
             # You can provide a list of strings that if found in the name, will not be considered duplicates
 
-            # Transactions cannot be set to 0, so we apppend an id to the existing transaction
+            # Transactions cannot be set to 0 in firefly, so we apppend an id to the existing transaction
             if not any(match in transaction['name'] for match in config['not_duplicates']):
                 logging.info(
                     f'Appending ID for duplicate transaction: {transaction["name"]} on {transaction["date"]}')
@@ -475,31 +496,42 @@ def main():
 
     global cursors
 
-    # Read credentials from config file
-    config, accounts = read_config('config.toml')
+    try:
+        config, accounts = read_config('config.toml')
+    except Exception as e:
+        logging.error("Failed to read config file: %s", e)
+        return
 
     logging.info("Connecting to Plaid.")
-    configuration = plaid.Configuration(
-        host=plaid.Environment.Development,
-        api_key={
-            'clientId': config['plaid_client_id'],
-            'secret': config['plaid_secret'],
-        }
-    )
-    api_client = plaid.ApiClient(configuration)
-    client = plaid_api.PlaidApi(api_client)
+    try:
+        configuration = plaid.Configuration(
+            host=plaid.Environment.Development,
+            api_key={
+                'clientId': config['plaid_client_id'],
+                'secret': config['plaid_secret'],
+            }
+        )
+        api_client = plaid.ApiClient(configuration)
+        client = plaid_api.PlaidApi(api_client)
+    except Exception as e:
+        logging.error("Failed to connect to Plaid: %s", e)
+        return
 
     if not accounts:
         logging.warning(
             "No accounts found in config.toml. Displaying available accounts below:")
         display_plaid_accounts(config, client)
-        exit(0)
+        return
 
     cursors = [None] * len(config['plaid_access_tokens'])
 
     logging.info("Getting transactions external_ids from Firefly.")
-    firefly_ids = firefly_filter_for_transaction_ids(
-        firefly_get_transactions(config, accounts))
+    try:
+        firefly_ids = firefly_filter_for_transaction_ids(
+            firefly_get_transactions(config, accounts))
+    except Exception as e:
+        logging.error("Failed to get transactions from Firefly: %s", e)
+        return
 
     logging.info("Starting Plaid to Firefly sync.")
 
