@@ -530,10 +530,11 @@ def main():
         firefly_ids = firefly_filter_for_transaction_ids(
             firefly_get_transactions(config, accounts))
     except Exception as e:
+        # Can't seem to get hostname to resolve so I'm using IP. Not sure if that is my own issue
         logging.error("Failed to get transactions from Firefly: %s", e)
         return
 
-    logging.info("Starting Plaid to Firefly sync.")
+    logging.info(f"Starting importer. Importing every {config['sync_minutes']} minutes")
 
     # sync(config, accounts, client, firefly_ids)
 

@@ -9,8 +9,8 @@ COPY requirements.txt .
 # Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code to the container
-COPY . .
+# Copy the application code to the container
+COPY import.py .
 
 # Run the Python app
 CMD ["python", "import.py"]
