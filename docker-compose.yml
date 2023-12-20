@@ -1,0 +1,7 @@
+version: '3.8'
+
+services:
+  firefly-plaid-importer:
+    image: ghcr.io/danielkinahan/firefly-plaid-importer:latest
+    volumes:
+      - ./config.toml:/app/config.toml
