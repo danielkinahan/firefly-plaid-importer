@@ -1,38 +1,30 @@
 # Plaid to Firefly III Importer
 
-This project is a script to import transactions from Plaid to Firefly III.
+An application to import transactions from Plaid to Firefly III. Written in Python 3.12 with no external dependancies for disk memory other than what's recorded in Firefly.
 
 ## Requirements
 
-- Python 3.12 or higher
-- A Plaid account with transactions
-- A Firefly III account
+- docker-compose
+- A Plaid account with development access (free)
+- A Firefly III instance
 
-## Installation
+## Getting started
 
-1. Clone this repository:
-
-2. Install the required Python packages:
-
-```
-
-pip install -r requirements.txt
-
-```
-
-## Usage
-
-1. Update the `config.toml` file with your Plaid and Firefly III details.
-2. Run the script:
-
-```
-
-python import.py
-
-```
+1. Clone this repo to your server
+2. Launch Plaid Quickstart in development mode
+    1.  Login in to your bank accounts to get the access-tokens
+3. ```cp example.config.toml config.toml```
+4. Fill out values of your config
+5. ```docker-compose up -d```
 
 ## Features
 
 - Fetches transactions from Plaid.
 - Checks for existing transactions in Firefly III.
 - Inserts new transactions into Firefly III.
+
+## Roadmap
+
+- Double sided transactions
+- Front-end in Flask
+- Integration of Plaid quickstart with front-end
