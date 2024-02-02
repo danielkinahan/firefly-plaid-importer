@@ -424,6 +424,7 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
     last_transaction = {
         "amount": None
     }
+    last_transaction_matched = False
 
     for transaction in plaid_transactions:
 
@@ -443,18 +444,27 @@ def insert_transactions(config, accounts, plaid_transactions, firefly_ids):
             if not any(match in transaction['name'] for match in config['not_duplicates']):
                 logging.info(
                     f'Appending ID for duplicate transaction: {transaction["name"]} on {transaction["date"]}')
-                combined_id = f'{last_transaction["transaction_id"]}, {transaction["transaction_id"]}'
-                firefly_id = json.loads(response.text)['data']['id']
-                update_existing_transaction_with_id(
-                    config, firefly_id, combined_id)
-                firefly_ids.add(transaction['transaction_id'])
-                continue
+                if not last_transaction_matched:
+                    combined_id = f'{last_transaction["transaction_id"]}, {transaction["transaction_id"]}'
+                    firefly_id = json.loads(response.text)['data']['id']
+                    update_existing_transaction_with_id(
+                        config, firefly_id, combined_id)
+                    firefly_ids.add(transaction['transaction_id'])
+                    continue
+                else:
+                    # Edge case where importing a duplicate transaction already matches an existing one and no insertion has been made yet.
+                    match_transaction(config, transaction)
+                    firefly_ids.add(transaction['transaction_id'])
+                    continue
 
         last_transaction = transaction
 
         if config['match_transactions']:
             if match_transaction(config, transaction):
+                last_transaction_matched = True
                 continue
+            else:
+                last_transaction_matched = False
 
         payload = extract_transaction_details(config, accounts, transaction)
 
